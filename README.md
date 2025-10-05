@@ -7,8 +7,8 @@ This is a simple editor tool that generates drop shadow images for a set of text
 3. Somewhere in your project, create a new resource file of type `DropShadowGenerator`. For example, in the **File System** dock panel, right-click in a folder, and select **Create New** -> **Resource...**, and then search for "DropShadowGenerator" and select it.
 4. Now, you can generate drop shadows:
     - Set the `OutputDirectory` property with the directory where you want to save the generated drop shadow images.
-    - Add key-value pairs to the `OutputFileNames` dictionary, where the keys are the textures/images you want to generate drop shadows for and the values are the file names of the generated drop shadow files. The file names don't need to have extension.
-    - Set the `BlurRadius` and `ShadowColor` how you like.
+    - Add key-value pairs to the `OutputFileNames` dictionary, where the keys are the textures/images you want to generate drop shadows for and the values are the file names of the generated drop shadow files. The file names don't need to have an extension.
+    - Set the `BlurRadius` and `ShadowColor` however you like.
     - Click the **Generate** button in the panel to generate the drop shadow images. The output panel displays information about the generation process.
     - Your drop shadow image files should now be available at the directory you specified (i.e. `OutputDirectory`).
 
