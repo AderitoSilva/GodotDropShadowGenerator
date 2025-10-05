@@ -14,12 +14,12 @@ This is a simple editor tool that generates drop shadow images for a set of text
 
 ## Additional Details
 - The genarated drop shadow images are saved in PNG format.
-- The resolution of the generated images is padded as necessary to allow for the blur radius.
-- It processes `Texture2D`, instead of `Image`. This is to make it more convenient to use the default import behavior of Godot, where image files are imported as `Texture2D` by default. This also makes it possible for you to provide textures from other sources (for example, `ViewportTexture`), instead of just images.
+- The resolution of the generated images is padded as necessary to make room for the blur radius.
+- The tool processes `Texture2D` instances, instead of `Image` files. This is to make it more convenient to use the default import behavior of Godot, where image files are imported as `Texture2D` by default. This also makes it possible for you to provide textures from other sources (for example, `ViewportTexture`), instead of just images.
 - Although this is a simple tool, it is relatively optimized for performance. It uses buffer pooling, paralell processing and SIMD vector math for faster image processing.
 
 ## Compatibility
 This tool was created for Godot 4.5, but it might work well in older versions.
 
 ## Footnotes
-I'm providing this tool here just as a drop-in script, since it is just a single C# file that I made for my own use. If you would like me to publish a NuGet package that you can more convenientely reference in your projects, please let me know.
+I'm providing this tool here just as a drop-in script, since it is just a single C# file that I made for my own usage. If you would like me to publish a NuGet package that you can more convenientely reference in your projects, please let me know.
