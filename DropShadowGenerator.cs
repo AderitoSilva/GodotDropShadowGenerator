@@ -2,6 +2,9 @@
 using System.Buffers;
 using NVector4 = System.Numerics.Vector4;
 
+	
+#nullable enable  // You can remove this if you have nullable enabled in your project.
+
 
 namespace Godot.EditorTools;
 
@@ -11,8 +14,8 @@ namespace Godot.EditorTools;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Use the "Generate" button in the tool's dock panel to generate drop shadows
-/// for the textures in <see cref="OutputFileNames"/>.
+/// Use the "Generate" button in the tool's dock panel to generate drop shadows for
+/// the textures in <see cref="OutputFileNames"/>.
 /// </para>
 /// </remarks>
 [Tool]
@@ -25,12 +28,6 @@ public partial class DropShadowGenerator : Resource
     private int _cachedGaussianKernelRadii;
 
 
-    public DropShadowGenerator()
-    {
-
-    }
-
-
     [ExportToolButton("Generate")]
     public Callable GenerateButton => Callable.From(Generate);
 
@@ -41,6 +38,7 @@ public partial class DropShadowGenerator : Resource
     [ExportGroup("Files")]
     [Export(PropertyHint.Dir)]
     public string? OutputDirectory { get; set; }
+
 
     /// <summary>
     /// A dictionary that maps the source textures to the file names for their generated
@@ -56,7 +54,7 @@ public partial class DropShadowGenerator : Resource
 
 
     [ExportGroup("Shadow")]
-    [Export(PropertyHint.Range, "0,250,1,or_greater")]
+    [Export(PropertyHint.Range, "0,256,1,or_greater")]
     public int BlurRadius { get; set; } = 10;
 
 
@@ -315,3 +313,4 @@ public partial class DropShadowGenerator : Resource
 
 
 }
+
