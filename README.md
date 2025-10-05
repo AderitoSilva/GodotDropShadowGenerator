@@ -20,3 +20,6 @@ This is a simple editor tool that generates drop shadow images for a set of text
 
 ## Compatibility
 This tool was created for Godot 4.5, but it might work well in older versions.
+
+## Footnotes
+I'm providing this tool here just as a drop-in script, since it is just a single C# file that I made for my own use. If you would like me to publish a NuGet package that you can more convenientely reference in your projects, please let me know.
