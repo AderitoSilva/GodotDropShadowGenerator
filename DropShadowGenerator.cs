@@ -1,5 +1,7 @@
 ﻿using Godot;
+using System;
 using System.Buffers;
+using System.Threading.Tasks;
 using NVector4 = System.Numerics.Vector4;  // This is to avoid conflicts with `Godot.Vector4`.
 
 
@@ -14,8 +16,8 @@ namespace Godot.EditorTools;
 /// </summary>
 /// <remarks>
 /// <para>
-/// Use the "Generate" button in the tool's dock panel to generate drop shadows for
-/// the textures in <see cref="OutputFileNames"/>.
+/// Use the "Generate" button in the resource inspector to generate drop shadows for
+/// the textures in specified <see cref="OutputFileNames"/>.
 /// </para>
 /// </remarks>
 [Tool]
@@ -24,8 +26,9 @@ public partial class DropShadowGenerator : Resource
 {
 
 
-    private float[]? _cachedGaussianKernel;  // Caches the Gaussian weights for a specific blur radius.
-    private int _cachedGaussianKernelRadii;  // The blur radius for which the cached Gaussian weights are stored.
+    private const int MaxBlurRadius = 512;  // The maximum allowed blur radius. If the user provides values greater than this, they will be clamped.
+
+    private (float[] Kernel, int Radius)? _cachedGaussianKernel;  // Caches the Gaussian weights for a specific blur radius.
 
 
     [ExportToolButton("Generate")]
@@ -35,6 +38,9 @@ public partial class DropShadowGenerator : Resource
     /// <summary>
     /// The directory where the generated drop shadow images will be save to.
     /// </summary>
+    /// <remarks>
+    /// This property's value should include the "res://" prefix.
+    /// </remarks>
     [ExportGroup("Files")]
     [Export(PropertyHint.Dir)]
     public string? OutputDirectory { get; set; }
@@ -54,7 +60,7 @@ public partial class DropShadowGenerator : Resource
 
 
     [ExportGroup("Shadow")]
-    [Export(PropertyHint.Range, "0,250,1,or_greater")]
+    [Export(PropertyHint.Range, $"0,256,1,or_greater")]
     public int BlurRadius { get; set; } = 10;
 
 
@@ -63,7 +69,8 @@ public partial class DropShadowGenerator : Resource
 
 
     /// <summary>
-    /// Generate the drop shadow images.
+    /// Generate the drop shadow images, using the current <see cref="DropShadowGenerator"/>
+    /// configuration.
     /// </summary>
     public virtual void Generate()
     {
@@ -95,7 +102,7 @@ public partial class DropShadowGenerator : Resource
         // Generate drop shadow images.
         GD.Print($"Generating drop shadow images. {OutputFileNames.Count} images will be processed.");
         long startTimestamp = Stopwatch.GetTimestamp();  // Snapshot the current timestamp, for benchmark printing.
-        int blurRadius = Math.Clamp(BlurRadius, 0, 512);
+        int blurRadius = BlurRadius;
         Color shadowColor = ShadowColor;
         int generatedCount = 0;  // Count the generated images, for printing.
         foreach (var (texture, fileName) in OutputFileNames)
@@ -145,26 +152,48 @@ public partial class DropShadowGenerator : Resource
     }
 
 
+    /// <summary>
+    /// Generates a new <see cref="Image"/> that is the drop shadow of the specified
+    /// input <paramref name="image"/>, with the specified shadow <paramref name="color"/>.
+    /// </summary>
+    /// <param name="image"><see cref="Image"/> to generate a drop shadow for.</param>
+    /// <param name="color">The color of the drop shadow.</param>
+    /// <param name="blurRadius">The radius of the shadow blur.</param>
+    /// <returns>A new <see cref="Image"/> containing the resulting drop shadow.</returns>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="image"/> is <see langword="null"/>.</exception>
     protected Image GenerateDropShadow(Image image, Color color, int blurRadius)
     {
+        ArgumentNullException.ThrowIfNull(image);
+        blurRadius = Math.Clamp(blurRadius, 0, MaxBlurRadius);
+
+        const Image.Format format = Image.Format.Rgba8;
+
         int sourceWidth = image.GetWidth();
         int sourceHeight = image.GetHeight();
         int destinationWidth = sourceWidth + blurRadius * 2;
         int destinationHeight = sourceHeight + blurRadius * 2;
+        int destinationDataLength = destinationWidth * destinationHeight * 4;
+
+        // If the shadow is fully transparent, we don't need to process it. Just return an empty image.
+        if (color.A <= 0f)
+        {
+            return Image.CreateEmpty(destinationWidth, destinationHeight, false, format);
+        }
 
         // Rent working buffers.
-        var pool = ArrayPool<NVector4>.Shared;
-        NVector4[] buffer = pool.Rent(destinationWidth * destinationHeight);
-        byte[] destinationData = ArrayPool<byte>.Shared.Rent(destinationWidth * destinationHeight * 4);
+        NVector4[] buffer = ArrayPool<NVector4>.Shared.Rent(destinationWidth * destinationHeight);
+        byte[] destinationData = ArrayPool<byte>.Shared.Rent(destinationDataLength);
 
         try
         {
             // Ensure input is RGBA8.
-            if (image.GetFormat() != Image.Format.Rgba8)
+            if (image.GetFormat() != format)
             {
-                image.Convert(Image.Format.Rgba8);
+                image.Convert(format);
             }
 
+            // Get source data from the image.
             byte[] sourceData = image.GetData();
 
             // Initialize padding pixels to transparent. This is needed because we are
@@ -185,12 +214,12 @@ public partial class DropShadowGenerator : Resource
                 // Initialize padding columns (left and right) to transparent.
                 for (int y = blurRadius; y < destinationHeight - blurRadius; y++)
                 {
-                    int leftIdx = y * destinationWidth;
-                    int rightIdx = leftIdx + destinationWidth - 1;
+                    int leftIndex = y * destinationWidth;
+                    int rightIndex = leftIndex + destinationWidth - 1;
                     for (int x = 0; x < blurRadius; x++)
                     {
-                        buffer[leftIdx + x] = NVector4.Zero;
-                        buffer[rightIdx - x] = NVector4.Zero;
+                        buffer[leftIndex + x] = NVector4.Zero;
+                        buffer[rightIndex - x] = NVector4.Zero;
                     }
                 }
             }
@@ -200,18 +229,10 @@ public partial class DropShadowGenerator : Resource
             {
                 for (int x = 0; x < sourceWidth; x++)
                 {
-                    int sourceIdx = (y * sourceWidth + x) * 4;
-                    float alpha = sourceData[sourceIdx + 3] / 255f;
-                    if (alpha <= 0f)
-                    {
-                        // Fill transparent for this pixel.
-                        int dstIdx = (y + blurRadius) * destinationWidth + (x + blurRadius);
-                        buffer[dstIdx] = NVector4.Zero;
-                        continue;
-                    }
-
-                    int destinationIdx = (y + blurRadius) * destinationWidth + (x + blurRadius);
-                    buffer[destinationIdx] = new NVector4(color.R, color.G, color.B, color.A * alpha);
+                    int sourcePixelIndex = (y * sourceWidth + x) * 4;
+                    int destinationPixelIndex = (y + blurRadius) * destinationWidth + (x + blurRadius);
+                    float alpha = sourceData[sourcePixelIndex + 3] / 255f;
+                    buffer[destinationPixelIndex] = new NVector4(color.R, color.G, color.B, color.A * alpha);
                 }
             }
 
@@ -222,24 +243,23 @@ public partial class DropShadowGenerator : Resource
             Parallel.For(0, destinationWidth * destinationHeight, i =>
             {
                 NVector4 v = buffer[i];
-                int idx = i * 4;
-                destinationData[idx] = (byte)(Math.Clamp(v.X, 0f, 1f) * 255);
-                destinationData[idx + 1] = (byte)(Math.Clamp(v.Y, 0f, 1f) * 255);
-                destinationData[idx + 2] = (byte)(Math.Clamp(v.Z, 0f, 1f) * 255);
-                destinationData[idx + 3] = (byte)(Math.Clamp(v.W, 0f, 1f) * 255);
+                int pixelIndex = i * 4;
+                destinationData[pixelIndex] = (byte)(Math.Clamp(v.X, 0f, 1f) * 255);
+                destinationData[pixelIndex + 1] = (byte)(Math.Clamp(v.Y, 0f, 1f) * 255);
+                destinationData[pixelIndex + 2] = (byte)(Math.Clamp(v.Z, 0f, 1f) * 255);
+                destinationData[pixelIndex + 3] = (byte)(Math.Clamp(v.W, 0f, 1f) * 255);
             });
 
             // Create final image.
             Image shadowImage = Image.CreateFromData(
-                destinationWidth, destinationHeight,
-                false, Image.Format.Rgba8,
-                destinationData.AsSpan(0, destinationWidth * destinationHeight * 4));
+                destinationWidth, destinationHeight, false, format,
+                destinationData.AsSpan(0, destinationDataLength));
 
             return shadowImage;
         }
         finally
         {
-            pool.Return(buffer, clearArray: false);
+            ArrayPool<NVector4>.Shared.Return(buffer, clearArray: false);
             ArrayPool<byte>.Shared.Return(destinationData, clearArray: false);
         }
     }
@@ -254,8 +274,7 @@ public partial class DropShadowGenerator : Resource
         float[] kernel = ComputeGaussianKernel(radius);
 
         // Rent a temporary buffer.
-        var pool = ArrayPool<NVector4>.Shared;
-        NVector4[] tmp = pool.Rent(width * height);
+        NVector4[] tempBuffer = ArrayPool<NVector4>.Shared.Rent(width * height);
 
         try
         {
@@ -271,7 +290,7 @@ public partial class DropShadowGenerator : Resource
                         int nx = Math.Clamp(x + k, 0, width - 1);
                         sum += buffer[row + nx] * kernel[k + radius];
                     }
-                    tmp[row + x] = sum;
+                    tempBuffer[row + x] = sum;
                 }
             });
 
@@ -285,7 +304,7 @@ public partial class DropShadowGenerator : Resource
                     for (int k = -radius; k <= radius; k++)
                     {
                         int ny = Math.Clamp(y + k, 0, height - 1);
-                        sum += tmp[ny * width + x] * kernel[k + radius];
+                        sum += tempBuffer[ny * width + x] * kernel[k + radius];
                     }
                     buffer[row + x] = sum;
                 }
@@ -293,7 +312,7 @@ public partial class DropShadowGenerator : Resource
         }
         finally
         {
-            pool.Return(tmp, clearArray: false);
+            ArrayPool<NVector4>.Shared.Return(tempBuffer, clearArray: false);
         }
     }
 
@@ -301,20 +320,20 @@ public partial class DropShadowGenerator : Resource
     private float[] ComputeGaussianKernel(int radius)
     {
         // If there are already cached weights for the provided radius, return those.
-        if (_cachedGaussianKernel is not null && _cachedGaussianKernel.Length > 0
-            && _cachedGaussianKernelRadii == radius)
+        if (_cachedGaussianKernel is not null && _cachedGaussianKernel.Value.Kernel.Length > 0
+            && _cachedGaussianKernel.Value.Radius == radius)
         {
-            return _cachedGaussianKernel;
+            return _cachedGaussianKernel.Value.Kernel;
         }
 
         // Compute the Gaussian weights.
         float sigma = radius / 2f;
-        float twoSigmaSq = 2 * sigma * sigma;
+        float twoSigmaSquared = sigma * sigma * 2f;
         float[] kernel = new float[radius * 2 + 1];
         float sum = 0;
         for (int i = -radius; i <= radius; i++)
         {
-            float v = Mathf.Exp(-(i * i) / twoSigmaSq);
+            float v = Mathf.Exp(-(i * i) / twoSigmaSquared);
             kernel[i + radius] = v;
             sum += v;
         }
@@ -322,8 +341,7 @@ public partial class DropShadowGenerator : Resource
             kernel[i] /= sum;
 
         // Cache the computed Gaussian weights for the provided radius.
-        _cachedGaussianKernel = kernel;
-        _cachedGaussianKernelRadii = radius;
+        _cachedGaussianKernel = (kernel, radius);
 
         // Return the computed weights.
         return kernel;
